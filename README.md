@@ -125,18 +125,24 @@ _Lors de la définition d'une zone, spécifier l'adresse du sous-réseau IP avec
 
 **LIVRABLE : Remplir le tableau**
 
-| Adresse IP source | Adresse IP destination | Type              | Port src | Port dst | Action |
-|-------------------|------------------------|-------------------|----------|----------|--------|
-| 192.168.100.0/24  | anywhere               | icmp echo-request | -        | -        | ACCEPT |
-| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-reply   | -        | -        | ACCEPT |
-| anywhere          | 192.168.100.0/24       | icmp echo-reply   | -        | -        | ACCEPT |
-| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-request | -        | -        | ACCEPT |
-| 50                |                        |                   |          |          |        |
-| 60                |                        |                   |          |          |        |
-| 70                |                        |                   |          |          |        |
-| 80                |                        |                   |          |          |        |
-| 90                |                        |                   |          |          |        |
-| 100               |                        |                   |          |          |        |
+| Adresse IP source | Adresse IP destination | Type              | Port src      | Port dst      | Action |
+|-------------------|------------------------|-------------------|---------------|---------------|--------|
+| 192.168.100.0/24  | anywhere               | icmp echo-request | -             | -             | ACCEPT |
+| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-reply   | -             | -             | ACCEPT |
+| anywhere          | 192.168.100.0/24       | icmp echo-reply   | -             | -             | ACCEPT |
+| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-request | -             | -             | ACCEPT |
+| 192.168.100.0/24  | anywhere               | udp               | -             | 53            | ACCEPT |
+| 192.168.100.0/24  | anywhere               | tcp               | -             | 53            | ACCEPT |
+| anywhere          | 192.168.100.0/24       | udp               | 53            | -             | ACCEPT |
+| anywhere          | 192.168.100.0/24       | tcp               | 53            | -             | ACCEPT |
+| 192.168.100.0/24  | anywhere               | tcp               | -             | 80, 8081, 443 | ACCEPT |
+| anywhere          | 192.168.100.0/24       | tcp               | 80, 8081, 443 | -             | ACCEPT |
+| anywhere          | 192.168.200.3          | tcp               | -             | 80            | ACCEPT |
+| 192.168.200.3     | anywhere               | tcp               | 80            | -             | ACCEPT |
+| 192.168.100.3     | 192.168.200.3          | tcp               | -             | 22            | ACCEPT |
+| 192.168.200.3     | 192.168.100.3          | tcp               | 22            | -             | ACCEPT |
+| 192.168.100.3     | eth1                   | tcp               | -             | 22            | ACCEPT |
+| eth1              | 192.168.100.3          | tcp               | 22            | -             | ACCEPT |
 
 ---
 
@@ -429,6 +435,7 @@ ping www.google.com
 ---
 
 **LIVRABLE : capture d'écran de votre ping.**
+![alt text](screenshots/5_ping_google_fail.jpg "Title")
 
 ---
 
@@ -439,7 +446,10 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+iptables -A FORWARD -p udp --dport 53 -s 192.168.100.0/24 -j ACCEPT
+iptables -A FORWARD -p tcp --dport 53 -s 192.168.100.0/24 -j ACCEPT
+iptables -A FORWARD -p udp --sport 53 -d 192.168.100.0/24 -j ACCEPT
+iptables -A FORWARD -p tcp --sport 53 -d 192.168.100.0/24 -j ACCEPT
 ```
 
 ---
@@ -452,6 +462,7 @@ LIVRABLE : Commandes iptables
 ---
 
 **LIVRABLE : capture d'écran de votre ping.**
+![alt text](screenshots/6_ping_epfl_succeed.jpg "Title")
 
 ---
 
@@ -463,7 +474,7 @@ LIVRABLE : Commandes iptables
 ---
 **Réponse**
 
-**LIVRABLE : Votre réponse ici...**
+Le temps de réponse du premier ping est plus long car il a fallu faire une requête DNS préalablement pour récupérer l'adresse IP associé à wwww.epfl.ch
 
 ---
 
@@ -483,7 +494,9 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+# HTTP et HTTPS du LAN vers le WAN
+iptables -A FORWARD -p tcp --match multiport --dports 80,8080,443 -s 192.168.100.0/24 -j ACCEPT
+iptables -A FORWARD -p tcp --match multiport --sports 80,8080,443 -d 192.168.100.0/24 -j ACCEPT
 ```
 
 ---
@@ -495,7 +508,10 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+# LAN, WAN -> DMZ
+iptables -A FORWARD -p tcp --dport 80 -d 192.168.200.3 -j ACCEPT
+# DMZ -> LAN, WAN
+iptables -A FORWARD -p tcp --sport 80 -s 192.168.200.3 -j ACCEPT
 ```
 ---
 
@@ -507,6 +523,7 @@ LIVRABLE : Commandes iptables
 ---
 
 **LIVRABLE : capture d'écran.**
+![alt text](screenshots/7_wget_dmz_success.jpg "Title")
 
 ---
 
@@ -523,7 +540,12 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+# LAN client -> DMZ SSH
+iptables -A FORWARD -p tcp --dport 22 -d 192.168.200.3 -s 192.168.100.3 -j ACCEPT
+iptables -A FORWARD -p tcp --sport 22 -d 192.168.100.3 -s 192.168.200.3 -j ACCEPT
+# LAN client -> Firewall SSH
+iptables -A INPUT -p tcp --dport 22 -s 192.168.100.3 -j ACCEPT
+iptables -A OUTPUT -p tcp --sport 22 -d 192.168.100.3 -j ACCEPT
 ```
 
 ---
@@ -537,6 +559,7 @@ ssh root@192.168.200.3
 ---
 
 **LIVRABLE : capture d'écran de votre connexion ssh.**
+![alt text](screenshots/8_ssh_dmz_success.jpg "Title")
 
 ---
 
@@ -548,7 +571,7 @@ ssh root@192.168.200.3
 ---
 **Réponse**
 
-**LIVRABLE : Votre réponse ici...**
+SSH permet d'établir des connexions sécurisés pour accéder au shell d'une machine distante par exemple.
 
 ---
 
@@ -561,7 +584,7 @@ ssh root@192.168.200.3
 ---
 **Réponse**
 
-**LIVRABLE : Votre réponse ici...**
+Il faut faire attention à quel source on donne accès à une connexion SSH, il faut restreindre la source le plus possible.
 
 ---
 
@@ -577,5 +600,5 @@ A présent, vous devriez avoir le matériel nécessaire afin de reproduire la ta
 ---
 
 **LIVRABLE : capture d'écran avec toutes vos règles.**
-
+![alt text](screenshots/9_iptables.jpg "Title")
 ---
