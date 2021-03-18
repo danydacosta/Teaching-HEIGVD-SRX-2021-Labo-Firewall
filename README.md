@@ -125,15 +125,18 @@ _Lors de la définition d'une zone, spécifier l'adresse du sous-réseau IP avec
 
 **LIVRABLE : Remplir le tableau**
 
-| Adresse IP source | Adresse IP destination | Type | Port src | Port dst | Action |
-| :---:             | :---:                  | :---:| :------: | :------: | :----: |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
+| Adresse IP source | Adresse IP destination | Type              | Port src | Port dst | Action |
+|-------------------|------------------------|-------------------|----------|----------|--------|
+| 192.168.100.0/24  | anywhere               | icmp echo-request | -        | -        | ACCEPT |
+| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-reply   | -        | -        | ACCEPT |
+| anywhere          | 192.168.100.0/24       | icmp echo-reply   | -        | -        | ACCEPT |
+| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-request | -        | -        | ACCEPT |
+| 50                |                        |                   |          |          |        |
+| 60                |                        |                   |          |          |        |
+| 70                |                        |                   |          |          |        |
+| 80                |                        |                   |          |          |        |
+| 90                |                        |                   |          |          |        |
+| 100               |                        |                   |          |          |        |
 
 ---
 
@@ -212,6 +215,7 @@ ping 192.168.200.3
 ---
 
 **LIVRABLE : capture d'écran de votre tentative de ping.**  
+![alt text](screenshots/1_non_working_ping.jpg "Title")
 
 ---
 
@@ -251,6 +255,7 @@ ping 192.168.100.3
 ---
 
 **LIVRABLES : captures d'écran des routes des deux machines et de votre nouvelle tentative de ping.**
+![alt text](screenshots/2_working_ping.jpg "Title")
 
 ---
 
@@ -267,6 +272,7 @@ Si votre ping passe mais que la réponse contient un _Redirect Host_, ceci indiq
 ---
 
 **LIVRABLE : capture d'écran de votre ping vers l'Internet. Un ping qui ne passe pas ou des réponses containant des _Redirect Host_ sont acceptés.**
+![alt text](screenshots/3_redirect_host_ping.jpg "Title")
 
 ---
 
@@ -345,7 +351,18 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+iptables -P INPUT DROP
+iptables -P OUTPUT DROP
+iptables -P FORWARD DROP
+
+# LAN -> DMZ
+iptables -A FORWARD -p icmp --icmp-type 8 -s 192.168.100.0/24 -j ACCEPT
+iptables -A FORWARD -p icmp --icmp-type 0 -s 192.168.200.0/24 -d 192.168.100.0/24 -j ACCEPT
+# LAN -> WAN
+iptables -A FORWARD -p icmp --icmp-type 0 -d 192.168.100.0/24 -j ACCEPT
+# DMZ -> LAN
+iptables -A FORWARD -p icmp --icmp-type 8 -s 192.168.200.0/24 -d 192.168.100.0/24 -j ACCEPT
+iptables -A FORWARD -p icmp --icmp-type 0 -s 192.168.100.0/24 -d 192.168.200.0/24 -j ACCEPT
 ```
 ---
 
@@ -370,6 +387,7 @@ traceroute 8.8.8.8
 
 ---
 **LIVRABLE : capture d'écran du traceroute et de votre ping vers l'Internet. Il ne devrait pas y avoir des _Redirect Host_ dans les réponses au ping !**
+![alt text](screenshots/4_ping_8_8_8_8.jpg "Title")
 
 ---
 
@@ -381,18 +399,18 @@ traceroute 8.8.8.8
 
 | De Client\_in\_LAN à | OK/KO | Commentaires et explications |
 | :---                 | :---: | :---                         |
-| Interface DMZ du FW  |       |                              |
-| Interface LAN du FW  |       |                              |
-| Client LAN           |       |                              |
-| Serveur WAN          |       |                              |
+| Interface DMZ du FW  |    KO   |    Ajouter deux règles pour accepter le ping sur le firewall (chain INPUT/OUTPUT)                          |
+| Interface LAN du FW  |  KO     |    Même chose qu'au-dessus                          |
+| Client LAN           |   OK    |                              |
+| Serveur WAN          |   OK    |                              |
 
 
 | De Server\_in\_DMZ à | OK/KO | Commentaires et explications |
 | :---                 | :---: | :---                         |
-| Interface DMZ du FW  |       |                              |
-| Interface LAN du FW  |       |                              |
-| Serveur DMZ          |       |                              |
-| Serveur WAN          |       |                              |
+| Interface DMZ du FW  |   KO    |      Ajouter deux règles pour accepter le ping sur le firewall (chain INPUT/OUTPUT)                        |
+| Interface LAN du FW  |   KO    |       Même chose qu'au-dessus                       |
+| Serveur DMZ          |  OK     |                              |
+| Serveur WAN          |    KO   |    Le serveur n'a pas le droit de ping vers l'extérieur                          |
 
 
 ## Règles pour le protocole DNS
