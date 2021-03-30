@@ -125,15 +125,21 @@ _Lors de la définition d'une zone, spécifier l'adresse du sous-réseau IP avec
 
 **LIVRABLE : Remplir le tableau**
 
-| Adresse IP source | Adresse IP destination | Type | Port src | Port dst | Action |
-| :---:             | :---:                  | :---:| :------: | :------: | :----: |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
-|                   |                        |      |          |          |        |
+| Adresse IP source | Adresse IP destination | Type              | Port src      | Port dst      | Action |
+|-------------------|------------------------|-------------------|---------------|---------------|--------|
+| 192.168.100.0/24  | anywhere               | icmp echo-request | -             | -             | ACCEPT |
+| anywhere          | 192.168.100.0/24       | icmp echo-reply   | -             | -             | ACCEPT |
+| 192.168.200.0/24  | 192.168.100.0/24       | icmp echo-request | -             | -             | ACCEPT |
+| 192.168.100.0/24  | 192.168.200.0/24       | icmp echo-reply   | -             | -             | ACCEPT |
+| anywhere          | 192.168.100.0/24       | -m conntrack --ctstate ESTABLISHED | -             | -             | ACCEPT |
+| 192.168.100.0/24  | anywhere               | udp               | -             | 53            | ACCEPT |
+| 192.168.100.0/24  | anywhere               | tcp               | -             | 53            | ACCEPT |
+| 192.168.100.0/24  | anywhere               | tcp               | -             | 80, 8080, 443 | ACCEPT |
+| anywhere          | 192.168.200.3          | tcp dpt:http ctstate NEW,ESTABLISHED               | -             | 80            | ACCEPT |
+| 192.168.200.3     | anywhere               | tcp spt:http ctstate ESTABLISHED              | 80            | -             | ACCEPT |
+| 192.168.100.3     | 192.168.200.3          | tcp               | -             | 22            | ACCEPT |
+| 192.168.100.3     | INPUT - eth1                   | tcp               | -             | 22            | ACCEPT |
+| OUTPUT - eth1              | 192.168.100.3          | tcp               | 22            | -             | ACCEPT |
 
 ---
 
@@ -212,7 +218,7 @@ ping 192.168.200.3
 ---
 
 **LIVRABLE : capture d'écran de votre tentative de ping.**  
-
+![](pingEchec.jpg)
 ---
 
 En effet, la communication entre les clients dans le LAN et les serveurs dans la DMZ doit passer à travers le Firewall. Dans certaines configuration, il est probable que le ping arrive à passer par le bridge par défaut. Ceci est une limitation de Docker. **Si votre ping passe**, vous pouvez accompagner votre capture du ping avec une capture d'une commande traceroute qui montre que le ping ne passe pas actuellement par le Firewall mais qu'il a emprunté un autre chemin.
@@ -251,7 +257,11 @@ ping 192.168.100.3
 ---
 
 **LIVRABLES : captures d'écran des routes des deux machines et de votre nouvelle tentative de ping.**
-
+ip route Serveur
+![](ipRouteServer.jpg)
+ip route Client
+![](ipRouteClient.jpg)
+![](pingSuccess.jpg)
 ---
 
 La communication est maintenant possible entre les deux machines. Pourtant, si vous essayez de communiquer depuis le client ou le serveur vers l'Internet, ça ne devrait pas encore fonctionner sans une manipulation supplémentaire au niveau du firewall ou sans un service de redirection ICMP. Vous pouvez le vérifier avec un ping depuis le client ou le serveur vers une adresse Internet. 
@@ -267,7 +277,7 @@ Si votre ping passe mais que la réponse contient un _Redirect Host_, ceci indiq
 ---
 
 **LIVRABLE : capture d'écran de votre ping vers l'Internet. Un ping qui ne passe pas ou des réponses containant des _Redirect Host_ sont acceptés.**
-
+![](pingRedir.jpg)
 ---
 
 ### Configuration réseau du firewall
@@ -345,7 +355,17 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+  # Pour commencer, par défaut, on bloque tout:
+  iptables -P INPUT DROP
+  iptables -P OUTPUT DROP
+  iptables -P FORWARD DROP
+
+  # LAN -> anywhere
+  iptables -A FORWARD -p icmp --icmp-type 8 -s 192.168.100.0/24 -j ACCEPT
+  iptables -A FORWARD -p icmp --icmp-type 0 -d 192.168.100.0/24 -j ACCEPT
+  # DMZ -> LAN
+  iptables -A FORWARD -p icmp --icmp-type 8 -s 192.168.200.0/24 -d 192.168.100.0/24 -j ACCEPT
+  iptables -A FORWARD -p icmp --icmp-type 0 -s 192.168.100.0/24 -d 192.168.200.0/24 -j ACCEPT
 ```
 ---
 
@@ -358,19 +378,26 @@ LIVRABLE : Commandes iptables
 
 ```bash
 ping 8.8.8.8
-``` 	            
+```
 Faire une capture du ping.
 
 Vérifiez aussi la route entre votre client et le service `8.8.8.8`. Elle devrait partir de votre client et traverser votre Firewall :
 
 ```bash
 traceroute 8.8.8.8
-``` 	            
+```
 
 
 ---
 **LIVRABLE : capture d'écran du traceroute et de votre ping vers l'Internet. Il ne devrait pas y avoir des _Redirect Host_ dans les réponses au ping !**
+![](pingLANWAN.jpg)   
 
+NB: Pour le traceroute, on a dû ajouter les deux lignes suivantes sur le firewall:
+```bash
+iptables -A FORWARD -p icmp --icmp-type 11 -d 192.168.100.0/24 -j ACCEPT
+iptables -A OUTPUT -p icmp --icmp-type 11 -d 192.168.100.0/24 -j ACCEPT
+```
+![](trLANWAN.jpg)  
 ---
 
 <ol type="a" start="3">
@@ -381,18 +408,18 @@ traceroute 8.8.8.8
 
 | De Client\_in\_LAN à | OK/KO | Commentaires et explications |
 | :---                 | :---: | :---                         |
-| Interface DMZ du FW  |       |                              |
-| Interface LAN du FW  |       |                              |
-| Client LAN           |       |                              |
-| Serveur WAN          |       |                              |
+| Interface DMZ du FW  |    KO   | Le firewall a une politique DROP par défaut en INPUT. |
+| Interface LAN du FW  |    KO   | Le firewall a une politique DROP par défaut en INPUT. |
+| Client LAN           |    OK   | Loopback.|
+| Serveur WAN          |    OK   | Selon cahier des charges. |
 
 
 | De Server\_in\_DMZ à | OK/KO | Commentaires et explications |
 | :---                 | :---: | :---                         |
-| Interface DMZ du FW  |       |                              |
-| Interface LAN du FW  |       |                              |
-| Serveur DMZ          |       |                              |
-| Serveur WAN          |       |                              |
+| Interface DMZ du FW  |   KO    | Le firewall a une politique DROP par défaut en INPUT. |
+| Interface LAN du FW  |   KO    | Le firewall a une politique DROP par défaut en INPUT. |
+| Serveur DMZ          |   OK    | Loopback |
+| Serveur WAN          |   KO    | Selon cahier des charges. |
 
 
 ## Règles pour le protocole DNS
@@ -411,7 +438,7 @@ ping www.google.com
 ---
 
 **LIVRABLE : capture d'écran de votre ping.**
-
+![](pingEchecDNS.jpg)  
 ---
 
 * Créer et appliquer la règle adéquate pour que la **condition 1 du cahier des charges** soit respectée.
@@ -421,7 +448,11 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+  # On laisse d'abord entrer tout le trafic retour à destination du LAN
+  iptables -A FORWARD -d 192.168.100.0/24 -m conntrack --ctstate ESTABLISHED -j ACCEPT   
+
+  iptables -A FORWARD -p udp --dport 53 -s 192.168.100.0/24 -j ACCEPT
+  iptables -A FORWARD -p tcp --dport 53 -s 192.168.100.0/24 -j ACCEPT
 ```
 
 ---
@@ -434,7 +465,7 @@ LIVRABLE : Commandes iptables
 ---
 
 **LIVRABLE : capture d'écran de votre ping.**
-
+![](pingSuccessDNS.jpg)  
 ---
 
 <ol type="a" start="6">
@@ -445,7 +476,9 @@ LIVRABLE : Commandes iptables
 ---
 **Réponse**
 
-**LIVRABLE : Votre réponse ici...**
+**LIVRABLE : Votre réponse ici...**   
+
+Lors du premier ping, la commande n'arrivait pas à résoudre le domaine `google.com` en adresse IP car le firewall bloquait le trafic DNS. De ce fait, le ping n'était pas possible ce qui explique le message d'erreur.
 
 ---
 
@@ -465,7 +498,7 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+  iptables -A FORWARD -p tcp --match multiport --dports 80,8080,443 -s 192.168.100.0/24 -j ACCEPT
 ```
 
 ---
@@ -477,7 +510,10 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+  # Trafic retour pour le serveur web
+  # On accepte les paquets faisant partie d'une connexion établie pour le serveur de la DMZ
+  iptables -A FORWARD -p tcp --dport 80 -d 192.168.200.3 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+  iptables -A FORWARD -p tcp --sport 80 -s 192.168.200.3 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 ```
 ---
 
@@ -489,7 +525,7 @@ LIVRABLE : Commandes iptables
 ---
 
 **LIVRABLE : capture d'écran.**
-
+![](httpDMZ.jpg)  
 ---
 
 
@@ -505,7 +541,10 @@ Commandes iptables :
 ---
 
 ```bash
-LIVRABLE : Commandes iptables
+  iptables -A FORWARD -p tcp --dport 22 -d 192.168.200.3 -s 192.168.100.3 -j ACCEPT
+  # LAN client -> Firewall SSH
+  iptables -A INPUT -p tcp --dport 22 -s 192.168.100.3 -i eth1 -j ACCEPT
+  iptables -A OUTPUT -p tcp --sport 22 -d 192.168.100.3 -o eth1 -j ACCEPT
 ```
 
 ---
@@ -519,7 +558,7 @@ ssh root@192.168.200.3
 ---
 
 **LIVRABLE : capture d'écran de votre connexion ssh.**
-
+![](sshDMZ.jpg)  
 ---
 
 <ol type="a" start="9">
@@ -530,7 +569,7 @@ ssh root@192.168.200.3
 ---
 **Réponse**
 
-**LIVRABLE : Votre réponse ici...**
+Permet d'administrer une machine via la ligne de commande à distance (en ayant tout le trafic chiffré, avec authentification).
 
 ---
 
@@ -543,7 +582,7 @@ ssh root@192.168.200.3
 ---
 **Réponse**
 
-**LIVRABLE : Votre réponse ici...**
+Il faut veiller que les connexions venant du WAN soient rejetées. Sinon si une faille dans le serveur SSH est découverte, elle peut permettre à n'importe qui de se connecter au serveur. Il faut restreindre la source le plus possible.
 
 ---
 
@@ -559,5 +598,6 @@ A présent, vous devriez avoir le matériel nécessaire afin de reproduire la ta
 ---
 
 **LIVRABLE : capture d'écran avec toutes vos règles.**
+![](iptables.jpg) 
 
 ---
